@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DuaLLaMa Chat</title>
     <style>
-        /* Dark Theme CSS - Remains the same as previous version */
+        /* Dark Theme CSS - Remains the same */
         :root {
             --bg-color: #1e1e1e;
             --text-color: #e0e0e0;
@@ -77,6 +77,10 @@
         }
         input::placeholder, textarea::placeholder {
             color: #888;
+        }
+        textarea {
+            min-height: 40px; /* Adjust height for prompt textareas */
+            resize: vertical;
         }
         .chat-container {
             height: 500px;
@@ -160,18 +164,17 @@
         .close:hover { color: var(--text-color); }
         .config-section { margin-bottom: 20px; }
         .config-section h3 { margin-top: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; }
-        .config-row { display: flex; margin-bottom: 10px; align-items: center; }
-        .config-row label { width: 150px; }
+        .config-row { display: flex; margin-bottom: 10px; align-items: flex-start; /* Align items to top for textareas */ }
+        .config-row label { width: 150px; padding-top: 8px; /* Align label better with input/textarea */ }
         .config-row input, .config-row select, .config-row textarea { flex: 1; background-color: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); }
-        .config-row textarea { width: calc(100% - 160px); min-height: 80px; resize: vertical; }
+        .config-row textarea { width: calc(100% - 160px); /* Adjusted width */ min-height: 60px; resize: vertical; } /* Default textarea height */
         .config-actions { text-align: right; margin-top: 20px; }
     </style>
 </head>
 <body>
-    <h1>DuaLLama</h1>
+    <h1>DuaLLaMa</h1>
 
     <div class="settings">
-        <!-- Settings content remains the same -->
          <div class="settings-basic">
             <div class="settings-row">
                 <label for="llm1-name">Bot 1 Name:</label>
@@ -211,13 +214,12 @@
 
     <!-- Configuration Modal -->
     <div id="config-modal" class="modal">
-         <!-- Modal content remains the same -->
         <div class="modal-content">
             <span class="close">&times;</span>
             <h2>Advanced Configuration</h2>
 
             <div class="config-section">
-                <h3>Bot 1 Settings</h3>
+                <h3>Bot 1 Settings (<span id="modal-llm1-name">LLaMa-1</span>)</h3>
                 <div class="config-row">
                     <label for="llm1-temperature">Temperature:</label>
                     <input type="number" id="llm1-temperature" value="0.7" min="0" max="2" step="0.1">
@@ -238,10 +240,14 @@
                     <label for="llm1-presence-penalty">Presence Penalty:</label>
                     <input type="number" id="llm1-presence-penalty" value="0" min="-2" max="2" step="0.1">
                 </div>
+                 <div class="config-row">
+                    <label for="llm1-system-prompt">System Prompt:</label>
+                    <textarea id="llm1-system-prompt" rows="3" placeholder="Optional. Overrides general prompt for this bot."></textarea>
+                </div>
             </div>
 
             <div class="config-section">
-                <h3>Bot 2 Settings</h3>
+                <h3>Bot 2 Settings (<span id="modal-llm2-name">LLaMa-2</span>)</h3>
                 <div class="config-row">
                     <label for="llm2-temperature">Temperature:</label>
                     <input type="number" id="llm2-temperature" value="0.7" min="0" max="2" step="0.1">
@@ -262,6 +268,10 @@
                     <label for="llm2-presence-penalty">Presence Penalty:</label>
                     <input type="number" id="llm2-presence-penalty" value="0" min="-2" max="2" step="0.1">
                 </div>
+                 <div class="config-row">
+                    <label for="llm2-system-prompt">System Prompt:</label>
+                    <textarea id="llm2-system-prompt" rows="3" placeholder="Optional. Overrides general prompt for this bot."></textarea>
+                </div>
             </div>
 
             <div class="config-section">
@@ -280,7 +290,7 @@
                     <span style="margin-left: 10px;">(messages)</span>
                 </div>
                 <div class="config-row">
-                    <label for="system-prompt">System Prompt:</label>
+                    <label for="system-prompt">General System Prompt:</label>
                     <textarea id="system-prompt" rows="4">You are a helpful assistant engaging in a three-way conversation.</textarea>
                 </div>
             </div>
@@ -300,13 +310,15 @@
             const stopButton = document.getElementById('stop-conversation');
             const configButton = document.getElementById('config-button');
             const configModal = document.getElementById('config-modal');
-            const closeModalBtn = configModal.querySelector('.close'); // Scope querySelector to modal
+            const closeModalBtn = configModal.querySelector('.close');
             const saveConfigBtn = document.getElementById('save-config');
             const llm1NameInput = document.getElementById('llm1-name');
             const llm2NameInput = document.getElementById('llm2-name');
             const llm1PortInput = document.getElementById('llm1-port');
             const llm2PortInput = document.getElementById('llm2-port');
             const autoTurnsInput = document.getElementById('auto-turns');
+            const modalLlm1Name = document.getElementById('modal-llm1-name'); // For modal title
+            const modalLlm2Name = document.getElementById('modal-llm2-name'); // For modal title
 
             // --- State variables ---
             let isBotConversationActive = false;
@@ -314,45 +326,64 @@
             let chatHistory = [];
             let messageCounter = 0;
 
-            // --- Config objects ---
-            let llm1Config = { temperature: 0.7, max_tokens: 1024, top_p: 0.9, frequency_penalty: 0, presence_penalty: 0 };
-            let llm2Config = { temperature: 0.7, max_tokens: 1024, top_p: 0.9, frequency_penalty: 0, presence_penalty: 0 };
+            // --- Config objects (Added systemPrompt per LLM) ---
+            let llm1Config = { temperature: 0.7, max_tokens: 1024, top_p: 0.9, frequency_penalty: 0, presence_penalty: 0, systemPrompt: '' };
+            let llm2Config = { temperature: 0.7, max_tokens: 1024, top_p: 0.9, frequency_penalty: 0, presence_penalty: 0, systemPrompt: '' };
             let contextConfig = { type: 'full', window: 10, systemPrompt: 'You are a helpful assistant engaging in a three-way conversation.' };
 
-            // --- Function Definitions (Defined before use) ---
+            // --- Function Definitions ---
 
             // Load current configuration into modal
             function loadCurrentConfig() {
+                // Update modal titles with current bot names
+                modalLlm1Name.textContent = llm1NameInput.value || 'LLaMa-1';
+                modalLlm2Name.textContent = llm2NameInput.value || 'LLaMa-2';
+
+                // Load Bot 1 settings
                 document.getElementById('llm1-temperature').value = llm1Config.temperature;
                 document.getElementById('llm1-max-tokens').value = llm1Config.max_tokens;
                 document.getElementById('llm1-top-p').value = llm1Config.top_p;
                 document.getElementById('llm1-frequency-penalty').value = llm1Config.frequency_penalty;
                 document.getElementById('llm1-presence-penalty').value = llm1Config.presence_penalty;
+                document.getElementById('llm1-system-prompt').value = llm1Config.systemPrompt; // Load specific prompt
+
+                // Load Bot 2 settings
                 document.getElementById('llm2-temperature').value = llm2Config.temperature;
                 document.getElementById('llm2-max-tokens').value = llm2Config.max_tokens;
                 document.getElementById('llm2-top-p').value = llm2Config.top_p;
                 document.getElementById('llm2-frequency-penalty').value = llm2Config.frequency_penalty;
                 document.getElementById('llm2-presence-penalty').value = llm2Config.presence_penalty;
+                document.getElementById('llm2-system-prompt').value = llm2Config.systemPrompt; // Load specific prompt
+
+                // Load Context settings
                 document.getElementById('context-type').value = contextConfig.type;
                 document.getElementById('context-window').value = contextConfig.window;
-                document.getElementById('system-prompt').value = contextConfig.systemPrompt;
+                document.getElementById('system-prompt').value = contextConfig.systemPrompt; // Load general prompt
             }
 
             // Save configuration from modal
             function saveConfiguration() {
+                // Save Bot 1 settings
                 llm1Config.temperature = parseFloat(document.getElementById('llm1-temperature').value);
                 llm1Config.max_tokens = parseInt(document.getElementById('llm1-max-tokens').value);
                 llm1Config.top_p = parseFloat(document.getElementById('llm1-top-p').value);
                 llm1Config.frequency_penalty = parseFloat(document.getElementById('llm1-frequency-penalty').value);
                 llm1Config.presence_penalty = parseFloat(document.getElementById('llm1-presence-penalty').value);
+                llm1Config.systemPrompt = document.getElementById('llm1-system-prompt').value.trim(); // Save specific prompt
+
+                // Save Bot 2 settings
                 llm2Config.temperature = parseFloat(document.getElementById('llm2-temperature').value);
                 llm2Config.max_tokens = parseInt(document.getElementById('llm2-max-tokens').value);
                 llm2Config.top_p = parseFloat(document.getElementById('llm2-top-p').value);
                 llm2Config.frequency_penalty = parseFloat(document.getElementById('llm2-frequency-penalty').value);
                 llm2Config.presence_penalty = parseFloat(document.getElementById('llm2-presence-penalty').value);
+                llm2Config.systemPrompt = document.getElementById('llm2-system-prompt').value.trim(); // Save specific prompt
+
+                // Save Context settings
                 contextConfig.type = document.getElementById('context-type').value;
                 contextConfig.window = parseInt(document.getElementById('context-window').value);
-                contextConfig.systemPrompt = document.getElementById('system-prompt').value;
+                contextConfig.systemPrompt = document.getElementById('system-prompt').value.trim(); // Save general prompt
+
                 configModal.style.display = "none";
                 console.log("Configuration saved:", { llm1Config, llm2Config, contextConfig });
             }
@@ -436,16 +467,17 @@
                 }
             }
 
-            // Helper: Prepare context string
+            // Helper: Prepare context string (formats history ONLY)
             function prepareContext(history) {
                 let contextMessages;
                 if (contextConfig.type === 'full') {
                     contextMessages = history;
                 } else if (contextConfig.type === 'window') {
                     contextMessages = history.slice(-contextConfig.window);
-                } else {
+                } else { // Default to full if type is unrecognized
                     contextMessages = history;
                 }
+                // Just format the history, system prompt added later
                 return contextMessages.map(msg => `${msg.role}: ${msg.content}`).join('\n');
             }
 
@@ -482,6 +514,8 @@
                             frequency_penalty: config.frequency_penalty,
                             presence_penalty: config.presence_penalty,
                             stream: true
+                            // Note: Sending the 'system prompt' directly here isn't standard for llama.cpp server's /completion
+                            // It's usually handled by prepending it to the main 'prompt' string, as done in botConversationTurn.
                         }),
                         signal: currentAbortController.signal
                     });
@@ -533,7 +567,7 @@
                          console.error('Error querying LLM:', error);
                          const errorText = `Error: ${error.message}. Check LLaMa server on port ${port}.`;
                          updateMessageContent(messageElement, errorText);
-                         accumulatedContent = errorText; // So it's not added to history
+                         accumulatedContent = errorText; // Mark as error, not added to history
                      }
                 } finally {
                      currentAbortController = null;
@@ -553,6 +587,7 @@
                          console.log("Could not calculate TPS.");
                      }
                 }
+                // Update one last time to ensure full content is shown, even if empty
                 updateMessageContent(messageElement, accumulatedContent || "[Empty Response]");
                 return { content: accumulatedContent, tpsInfo: tpsInfo };
             }
@@ -561,9 +596,28 @@
             async function botConversationTurn(currentSpeaker, otherSpeaker, currentPort, otherPort, currentConfig, turnsLeft) {
                 if (!isBotConversationActive) return;
 
-                const messageElement = addMessageStructure(currentSpeaker, currentSpeaker === llm1NameInput.value ? 'llm1' : 'llm2', 'Thinking...');
-                const context = prepareContext(chatHistory);
-                const prompt = `${contextConfig.systemPrompt}\n\nThe following is a conversation between a user, ${llm1NameInput.value}, and ${llm2NameInput.value}.\nYou are ${currentSpeaker}. Respond to the ongoing conversation based ONLY on the preceding context. Keep your response relevant and concise.\n\n${context}\n\n${currentSpeaker}:`;
+                const llm1Name = llm1NameInput.value || 'LLaMa-1'; // Get current names
+                const llm2Name = llm2NameInput.value || 'LLaMa-2';
+
+                const messageElement = addMessageStructure(currentSpeaker, currentSpeaker === llm1Name ? 'llm1' : 'llm2', 'Thinking...');
+
+                // --- Determine the active system prompt ---
+                let activeSystemPrompt = (currentConfig.systemPrompt && currentConfig.systemPrompt.trim())
+                                        ? currentConfig.systemPrompt.trim() // Use specific if available
+                                        : contextConfig.systemPrompt.trim(); // Fallback to general
+                // Provide a minimal default if both are empty
+                if (!activeSystemPrompt) {
+                    activeSystemPrompt = "You are a helpful AI assistant.";
+                }
+                // --- ---
+
+                const historyContext = prepareContext(chatHistory); // Get history formatted
+
+                // Construct the final prompt including the chosen system prompt
+                const prompt = `${activeSystemPrompt}\n\nThe following is a conversation between a user, ${llm1Name}, and ${llm2Name}.\nYou are ${currentSpeaker}. Respond to the ongoing conversation based ONLY on the preceding context. Keep your response relevant and concise.\n\n${historyContext}\n\n${currentSpeaker}:`;
+
+                console.log(`[${currentSpeaker} Prompt] System: "${activeSystemPrompt}"`); // Log which prompt is used
+                // console.log(`[${currentSpeaker} Prompt] Full: \n---\n${prompt}\n---`); // Optional: Log full prompt for debugging
 
                 const result = await queryLLMStream(currentPort, prompt, currentConfig, messageElement);
                 if (messageElement && result.tpsInfo) {
@@ -575,18 +629,22 @@
                     return;
                 }
 
-                // Add valid responses to history
+                // Add valid responses to history (exclude errors, explicit stops, empty)
                 if (result.content && !result.content.startsWith("Error:") && result.content !== "[Stopped]" && result.content !== "[Empty Response]") {
                     chatHistory.push({ role: currentSpeaker, content: result.content });
+                } else {
+                    console.log(`[${currentSpeaker}] Response not added to history: "${result.content}"`);
                 }
 
                 // Continue or end
                 if (turnsLeft > 0 && isBotConversationActive) {
                     setTimeout(() => {
                         if (!isBotConversationActive) return;
-                        const nextConfig = currentSpeaker === llm1NameInput.value ? llm2Config : llm1Config;
+                        // Determine next speaker's config based on names
+                        const nextIsLlm1 = otherSpeaker === llm1Name;
+                        const nextConfig = nextIsLlm1 ? llm1Config : llm2Config;
                         botConversationTurn(otherSpeaker, currentSpeaker, otherPort, currentPort, nextConfig, turnsLeft - 1);
-                    }, 500);
+                    }, 500); // Delay between turns
                 } else {
                     endBotConversation();
                 }
@@ -602,7 +660,7 @@
                 const llm2Name = llm2NameInput.value || 'LLaMa-2';
                 const llm1Port = llm1PortInput.value || '8080';
                 const llm2Port = llm2PortInput.value || '8000';
-                const totalTurns = parseInt(autoTurnsInput.value) * 2;
+                const totalTurns = parseInt(autoTurnsInput.value) * 2; // Each turn is one bot response
 
                  if (totalTurns <= 0) {
                      console.log("Auto-turns set to 0, not starting bot conversation.");
@@ -610,9 +668,17 @@
                      return;
                  }
 
+                // Decide who starts: LLM1 always starts after user input
+                const firstSpeaker = llm1Name;
+                const secondSpeaker = llm2Name;
+                const firstPort = llm1Port;
+                const secondPort = llm2Port;
+                const firstConfig = llm1Config;
+
                 setTimeout(() => {
                      if (!isBotConversationActive) return;
-                    botConversationTurn(llm1Name, llm2Name, llm1Port, llm2Port, llm1Config, totalTurns -1);
+                    // Start with the first bot, passing the total number of bot responses needed
+                    botConversationTurn(firstSpeaker, secondSpeaker, firstPort, secondPort, firstConfig, totalTurns - 1);
                 }, 100); // Small delay for UI update
             }
 
@@ -633,8 +699,9 @@
                 const message = userInput.value.trim();
                 if (message === '' || isBotConversationActive) return;
 
-                endBotConversation(true); // Force stop any active generation
+                endBotConversation(true); // Force stop any active generation before user sends
                 userInput.value = '';
+                chatHistory = []; // Clear history on new user message for simplicity in this example? Or keep it? Keep it for now.
 
                 const userMessageElement = addMessageStructure('You', 'user', message);
                 chatHistory.push({ role: "user", content: message });
@@ -644,47 +711,40 @@
 
             // --- Event Listener Assignments ---
 
-            // Send button click
             sendButton.addEventListener('click', handleSendMessage);
 
-            // User input Enter key press
             userInput.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter' && !e.shiftKey) { // Check for Enter without Shift
-                    e.preventDefault(); // Prevent default form submission/newline
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
                     handleSendMessage();
                 }
             });
 
-            // Stop button click
             stopButton.addEventListener('click', () => {
                  endBotConversation(true); // Force stop
             });
 
-            // Config modal open button
-            configButton.onclick = function() { // Use onclick for simplicity here
-                loadCurrentConfig(); // Load existing settings into fields
+            configButton.onclick = function() {
+                loadCurrentConfig();
                 configModal.style.display = "block";
             };
 
-            // Config modal close button
-            closeModalBtn.onclick = function() { // Use onclick
+            closeModalBtn.onclick = function() {
                 configModal.style.display = "none";
             };
 
-            // Config modal save button
-            saveConfigBtn.onclick = function() { // Use onclick
+            saveConfigBtn.onclick = function() {
                 saveConfiguration();
             };
 
-            // Click outside modal to close
-            window.onclick = function(event) { // Use onclick
+            window.onclick = function(event) {
                 if (event.target == configModal) {
                     configModal.style.display = "none";
                 }
             };
 
             // --- Initial Setup ---
-            setControlsState(false); // Ensure controls are enabled on load
+            setControlsState(false);
 
         });
     </script>
